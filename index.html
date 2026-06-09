@@ -141,6 +141,11 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .btn-setup { width: 100%; padding: 11px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 8px; }
 .btn-setup:hover { background: #3C3489; }
 
+
+.btn-file-label { display:inline-flex; align-items:center; gap:5px; padding:5px 11px; border:1px dashed var(--border2); border-radius:var(--radius-sm); font-size:12px; color:var(--muted); cursor:pointer; transition:all .15s; }
+.btn-file-label:hover { border-color:var(--primary); color:var(--primary); background:var(--primary-light); }
+.file-status { font-size:11px; color:var(--success); margin-top:5px; min-height:16px; }
+
 /* ── PULSE ── */
 .dot-pulse { display: inline-flex; gap: 4px; align-items: center; }
 .dot-pulse span { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: dp 1.2s ease-in-out infinite; }
@@ -152,6 +157,8 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #52C788; display: inline-block; animation: live 2s ease-in-out infinite; }
 @keyframes live { 0%,100%{opacity:1} 50%{opacity:.4} }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 
@@ -456,8 +463,15 @@ function renderContent(){
   content.innerHTML = `
     <div class="step-header"><h2>${st.title}</h2><p>${st.desc}</p></div>
     <div class="input-card">
-      <label>${st.inputLabel}</label>
-      <textarea id="main-input" placeholder="Постави материалите тук..."></textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="margin-bottom:0">${st.inputLabel}</label>
+        <label class="btn-file-label" for="file-upload-input">
+          <i class="ti ti-paperclip" aria-hidden="true"></i> Прикачи файл
+          <input id="file-upload-input" type="file" accept=".txt,.md,.docx,.pdf" style="display:none" onchange="handleFileUpload(this)">
+        </label>
+      </div>
+      <textarea id="main-input" placeholder="Постави текст тук, или прикачи .txt / .docx / .pdf файл..."></textarea>
+      <div class="file-status" id="file-status"></div>
       <div class="btn-row">
         <button class="btn-generate" id="gen-btn" onclick="generate()" ${state.generating?'disabled':''}>
           ${state.generating ? '<div class="dot-pulse"><span></span><span></span><span></span></div> Анализира...' : '<i class="ti ti-cpu" aria-hidden="true"></i> Генерирай анализ'}
@@ -492,6 +506,51 @@ function renderCtx(){
 }
 
 function toggleCtx(){ state.ctxOpen = !state.ctxOpen; renderCtx(); }
+
+// ── FILE UPLOAD ───────────────────────────────────────────────────
+async function handleFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('file-status');
+  const textarea = document.getElementById('main-input');
+  status.textContent = 'Зарежда се...';
+
+  try {
+    if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+      const text = await file.text();
+      textarea.value = text;
+      status.textContent = '✓ ' + file.name + ' зареден (' + Math.round(text.length/1000) + 'k символа)';
+
+    } else if (file.name.endsWith('.docx')) {
+      const buf = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer: buf });
+      textarea.value = result.value;
+      status.textContent = '✓ ' + file.name + ' зареден (' + Math.round(result.value.length/1000) + 'k символа)';
+
+    } else if (file.name.endsWith('.pdf')) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      let text = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(s => s.str).join(' ') + '\n';
+      }
+      textarea.value = text;
+      status.textContent = '✓ ' + file.name + ' зареден (' + pdf.numPages + ' стр., ' + Math.round(text.length/1000) + 'k символа)';
+
+    } else {
+      status.style.color = '#E24B4A';
+      status.textContent = 'Поддържани формати: .txt, .md, .docx, .pdf';
+    }
+  } catch(e) {
+    status.style.color = '#E24B4A';
+    status.textContent = 'Грешка при четене: ' + e.message;
+  }
+  input.value = '';
+}
+
 </script>
 </body>
 </html>
