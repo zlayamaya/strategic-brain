@@ -563,8 +563,13 @@ function buildContext(){
 // ── GENERATE ──────────────────────────────────────────────────────
 async function generate(){
   if(!state.currentProjectId){ alert('Избери или създай проект първо.'); return; }
-  const inp = document.getElementById('main-input')?.value.trim();
-  if(!inp){ alert('Постави материали преди да генерираш.'); return; }
+  const rawInp = document.getElementById('main-input')?.value.trim();
+  if(!rawInp){ alert('Постави материали преди да генерираш.'); return; }
+  // Ограничи входа до ~24 000 символа (~6 000 токена) за да не се изчерпва rate limit-ът
+  const MAX_CHARS = 24000;
+  const inp = rawInp.length > MAX_CHARS
+    ? rawInp.slice(0, MAX_CHARS) + '\n\n[...документът е съкратен до първите 24 000 символа за оптималност...]'
+    : rawInp;
   const ph = PHASES[state.phaseIdx];
   const st = ph.steps[state.stepIdx];
   const ctx = buildContext();
