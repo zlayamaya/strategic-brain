@@ -594,6 +594,7 @@ async function compressInput(rawInp, stepContext) {
   for(let i = 0; i < rawInp.length; i += CHUNK_SIZE) chunks.push(rawInp.slice(i, i + CHUNK_SIZE));
   const summaries = [];
   for(let i = 0; i < chunks.length; i++) {
+    if(i > 0) await new Promise(r => setTimeout(r, 5000)); // 5с пауза между части
     const label = `📄 Четене на документа — част ${i+1} от ${chunks.length}...`;
     const result = await callGemini(
       `Това е част ${i+1} от ${chunks.length} на клиентски материал.\n\nИзвлечи и запази ВСИЧКИ факти, цитати, данни, напрежения, проблеми и конкретни твърдения. Не пропускай нищо важно. Контекст на анализа: ${stepContext}\n\n---\n${chunks[i]}`,
@@ -752,12 +753,17 @@ function renderContent(){
       </div>
     </div>
     <div class="output-card ${saved?'':'empty'}">
-      ${saved && saved.text === '⏳ RATE_LIMIT' ? `<div class="output-placeholder" id="rate-limit-box">
-        <i class="ti ti-clock-pause" style="font-size:36px;display:block;margin-bottom:10px;color:#B8860B"></i>
-        <p style="font-weight:600;color:#7A5C00;margin-bottom:6px">Gemini е претоварен в момента</p>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Безплатният план позволява 15 заявки/мин. Изчакай малко и опитай отново.</p>
-        <button class="btn-generate" onclick="retryGenerate()" id="retry-btn"><i class="ti ti-refresh"></i> Опитай отново</button>
-      </div>` : saved ? `<div id="output-text" class="output-text">${saved.text}</div>${metaHtml}` : '<div class="output-placeholder"><i class="ti ti-brain" aria-hidden="true"></i><p>Постави материали и натисни „Генерирај анализ"</p></div>'}
+      ${(()=>{
+        const isErr = saved && (saved.text === '⏳ RATE_LIMIT' || saved.text?.includes('Rate limit') || saved.text?.includes('debug') || saved.text?.includes('RATE_LIMIT'));
+        if(isErr) return `<div class="output-placeholder" id="rate-limit-box">
+          <i class="ti ti-clock-pause" style="font-size:36px;display:block;margin-bottom:10px;color:#B8860B"></i>
+          <p style="font-weight:600;color:#7A5C00;margin-bottom:6px">Gemini е претоварен в момента</p>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Безплатният план позволява 15 заявки/мин. Изчакай малко и опитай отново.</p>
+          <button class="btn-generate" onclick="clearAndRetry()" id="retry-btn"><i class="ti ti-refresh"></i> Опитай отново</button>
+        </div>`;
+        if(saved) return `<div id="output-text" class="output-text">${saved.text}</div>${metaHtml}`;
+        return '<div class="output-placeholder"><i class="ti ti-brain" aria-hidden="true"></i><p>Постави материали и натисни „Генерирай анализ"</p></div>';
+      })()}
     </div>
   `;
 }
@@ -784,23 +790,15 @@ function renderCtx(){
 
 function toggleCtx(){ state.ctxOpen = !state.ctxOpen; renderCtx(); }
 
-function retryGenerate(){
-  const btn = document.getElementById('retry-btn');
-  if(!btn) return;
-  let sec = 30;
-  btn.disabled = true;
-  btn.innerHTML = `<i class="ti ti-clock"></i> Изчакай ${sec}с`;
-  const t = setInterval(()=>{
-    sec--;
-    if(sec <= 0){
-      clearInterval(t);
-      btn.disabled = false;
-      btn.innerHTML = '<i class="ti ti-refresh"></i> Опитай отново';
-      btn.onclick = generate;
-    } else {
-      btn.innerHTML = `<i class="ti ti-clock"></i> Изчакай ${sec}с`;
-    }
-  }, 1000);
+async function clearAndRetry(){
+  // Изтрий грешното запазено съобщение от Firebase и регенерирай
+  if(state.currentProjectId){
+    const ph = PHASES[state.phaseIdx];
+    const st = ph.steps[state.stepIdx];
+    const key = `${ph.id}_${st.id}`;
+    await db.collection('projects').doc(state.currentProjectId).collection('outputs').doc(key).delete();
+  }
+  generate();
 }
 
 function toggleGuide(head){
