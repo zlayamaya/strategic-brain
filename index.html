@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strategic Brain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/tabler-icons.min.css">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<style>
+/* ── RESET & BASE ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F7F6F3;
+  --surface: #FFFFFF;
+  --surface2: #F1EFF9;
+  --border: rgba(0,0,0,0.08);
+  --border2: rgba(0,0,0,0.14);
+  --text: #1A1830;
+  --muted: #7A7896;
+  --primary: #534AB7;
+  --primary-light: #EEEDFE;
+  --primary-mid: #AFA9EC;
+  --success-bg: #E1F5EE;
+  --success: #0F6E56;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+}
+body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; min-height: 100vh; }
+
+/* ── LAYOUT ── */
+.app { display: flex; height: 100vh; overflow: hidden; }
+.sidebar { width: 220px; min-width: 220px; background: var(--text); display: flex; flex-direction: column; overflow: hidden; }
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.ctx-panel { width: 260px; min-width: 260px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; transition: width .25s, min-width .25s; }
+.ctx-panel.closed { width: 0; min-width: 0; border: none; overflow: hidden; }
+
+/* ── HEADER (top bar across full app) ── */
+.top-bar { display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 56px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.top-bar h1 { font-size: 15px; font-weight: 600; color: var(--text); }
+.top-bar-sep { color: var(--border2); font-size: 18px; }
+.project-select { border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 5px 10px; font-size: 13px; background: var(--surface); color: var(--text); cursor: pointer; }
+.btn-new-project { padding: 5px 12px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.btn-new-project:hover { background: #3C3489; }
+.user-chip { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+.user-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.ctx-toggle { padding: 5px 10px; border: 1px solid var(--border2); border-radius: var(--radius-sm); background: transparent; font-size: 12px; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.ctx-toggle:hover { background: var(--bg); }
+
+/* ── SIDEBAR ── */
+.sidebar-logo { padding: 18px 16px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sidebar-logo span { font-size: 13px; font-weight: 600; color: #fff; letter-spacing: .02em; }
+.sidebar-logo small { display: block; font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 1px; }
+.phase-nav { flex: 1; overflow-y: auto; padding: 8px 0; }
+.phase-item { position: relative; }
+.phase-btn { width: 100%; text-align: left; padding: 9px 16px; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background .15s; }
+.phase-btn:hover { background: rgba(255,255,255,0.06); }
+.phase-btn.active { background: rgba(175,169,236,0.18); }
+.phase-btn.active::before { content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; background: var(--primary-mid); border-radius: 0 3px 3px 0; }
+.ph-icon { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+.ph-icon.done { background: rgba(30,200,130,0.2); color: #52C788; }
+.ph-icon.active { background: rgba(175,169,236,0.25); color: var(--primary-mid); }
+.ph-icon.idle { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.4); }
+.ph-label { flex: 1; }
+.ph-label strong { display: block; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.9); }
+.ph-label small { font-size: 11px; color: rgba(255,255,255,0.4); }
+.ph-badge { font-size: 10px; background: rgba(82,199,136,0.2); color: #52C788; border-radius: 4px; padding: 1px 5px; }
+
+/* ── STEP TABS ── */
+.step-bar { padding: 0 20px; height: 48px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; overflow-x: auto; }
+.step-tab { padding: 5px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border2); background: transparent; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; transition: all .15s; }
+.step-tab:hover { background: var(--bg); }
+.step-tab.active { background: var(--primary-light); border-color: var(--primary-mid); color: var(--primary); font-weight: 500; }
+.step-tab.done { background: var(--success-bg); border-color: #9FE1CB; color: var(--success); }
+
+/* ── CONTENT AREA ── */
+.content { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.step-header h2 { font-size: 16px; font-weight: 600; }
+.step-header p { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.input-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.input-card label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 8px; }
+.input-card textarea { width: 100%; min-height: 130px; resize: vertical; border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; font-family: 'Inter', sans-serif; color: var(--text); background: var(--bg); line-height: 1.6; }
+.input-card textarea:focus { outline: none; border-color: var(--primary); }
+.btn-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.btn-generate { padding: 8px 18px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 7px; transition: background .15s; }
+.btn-generate:hover { background: #3C3489; }
+.btn-generate:disabled { background: #C8C5E8; cursor: not-allowed; }
+.btn-save { padding: 8px 14px; border: 1px solid var(--border2); border-radius: var(--radius-sm); background: transparent; font-size: 12px; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.btn-save:hover { background: var(--bg); }
+.status-txt { font-size: 12px; color: var(--muted); }
+.badge-saved { background: var(--success-bg); color: var(--success); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+.output-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; min-height: 200px; }
+.output-card.empty { display: flex; align-items: center; justify-content: center; }
+.output-placeholder { text-align: center; color: var(--muted); }
+.output-placeholder i { font-size: 36px; display: block; margin-bottom: 10px; color: var(--primary-mid); }
+.output-placeholder p { font-size: 13px; }
+.output-text { font-size: 13px; color: var(--text); line-height: 1.8; white-space: pre-wrap; }
+.output-meta { font-size: 11px; color: var(--muted); margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* ── CONTEXT PANEL ── */
+.ctx-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.ctx-header span { font-size: 13px; font-weight: 500; }
+.ctx-close { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 18px; line-height: 1; }
+.ctx-body { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.ctx-item { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.ctx-item-head { padding: 8px 10px; background: var(--bg); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.ctx-item-head span { font-size: 11.5px; font-weight: 500; color: var(--text); }
+.ctx-item-head i { color: var(--muted); font-size: 14px; }
+.ctx-item-body { padding: 8px 10px; font-size: 11.5px; color: var(--muted); max-height: 120px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; display: none; }
+.ctx-item-body.open { display: block; }
+.ctx-empty { text-align: center; padding: 30px 10px; font-size: 12px; color: var(--muted); }
+
+/* ── MODALS ── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal-overlay.hidden { display: none; }
+.modal { background: var(--surface); border-radius: var(--radius); padding: 24px; width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+.modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.modal p { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+.modal label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 5px; }
+.modal input { width: 100%; border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 14px; font-family: 'Inter', sans-serif; margin-bottom: 12px; }
+.modal input:focus { outline: none; border-color: var(--primary); }
+.modal-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.btn-cancel { padding: 8px 16px; border: 1px solid var(--border2); border-radius: var(--radius-sm); background: transparent; font-size: 13px; cursor: pointer; }
+.btn-confirm { padding: 8px 16px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; }
+.btn-confirm:hover { background: #3C3489; }
+
+/* ── SETUP SCREEN ── */
+.setup-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); }
+.setup-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px; width: 460px; box-shadow: var(--shadow); }
+.setup-card h2 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+.setup-card > p { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+.setup-field { margin-bottom: 16px; }
+.setup-field label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 5px; }
+.setup-field input { width: 100%; border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; font-family: 'Inter', sans-serif; }
+.setup-field input:focus { outline: none; border-color: var(--primary); }
+.setup-field small { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.btn-setup { width: 100%; padding: 11px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 8px; }
+.btn-setup:hover { background: #3C3489; }
+
+/* ── PULSE ── */
+.dot-pulse { display: inline-flex; gap: 4px; align-items: center; }
+.dot-pulse span { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: dp 1.2s ease-in-out infinite; }
+.dot-pulse span:nth-child(2){ animation-delay:.2s }
+.dot-pulse span:nth-child(3){ animation-delay:.4s }
+@keyframes dp { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
+
+/* ── LIVE INDICATOR ── */
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #52C788; display: inline-block; animation: live 2s ease-in-out infinite; }
+@keyframes live { 0%,100%{opacity:1} 50%{opacity:.4} }
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN (shown until Firebase config is entered) -->
+<div id="setup-screen" class="setup-screen">
+  <div class="setup-card">
+    <h2>⚙️ Първоначална настройка</h2>
+    <p>Попълни данните от SETUP.md. Ще се запазят в браузъра — следващия път не е нужно.</p>
+    <div class="setup-field">
+      <label>Твоето ime (за да се вижда кой редактира)</label>
+      <input id="setup-name" type="text" placeholder="Напр. Maya">
+    </div>
+    <div class="setup-field">
+      <label>Firebase Project ID</label>
+      <input id="setup-projectid" type="text" placeholder="strategic-brain-xxxxx">
+      <small>От Firebase Console → Project Settings → Project ID</small>
+    </div>
+    <div class="setup-field">
+      <label>Firebase API Key</label>
+      <input id="setup-apikey" type="text" placeholder="AIzaSy...">
+      <small>От Firebase Console → Project Settings → Web App → apiKey</small>
+    </div>
+    <button class="btn-setup" onclick="saveSetup()">Запази и влез →</button>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until setup) -->
+<div id="app" class="app" style="display:none">
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span>Strategic Brain</span>
+      <small>by your studio</small>
+    </div>
+    <nav class="phase-nav" id="phase-nav"></nav>
+  </aside>
+
+  <div class="main">
+    <div class="top-bar">
+      <h1>Strategic Brain</h1>
+      <span class="top-bar-sep">/</span>
+      <select class="project-select" id="project-select" onchange="onProjectChange()">
+        <option value="">— Избери проект —</option>
+      </select>
+      <button class="btn-new-project" onclick="showNewProject()">
+        <i class="ti ti-plus" aria-hidden="true"></i> Нов проект
+      </button>
+      <div class="user-chip">
+        <span class="live-dot" title="Данните се синхронизират в реално време"></span>
+        <div class="user-avatar" id="user-avatar">?</div>
+        <span id="user-name-display">—</span>
+      </div>
+      <button class="ctx-toggle" onclick="toggleCtx()">
+        <i class="ti ti-layout-sidebar-right" aria-hidden="true"></i> Контекст
+      </button>
+    </div>
+
+    <div class="step-bar" id="step-bar"></div>
+
+    <div class="content" id="content">
+      <div class="output-card empty" style="height:300px">
+        <div class="output-placeholder">
+          <i class="ti ti-folder-open" aria-hidden="true"></i>
+          <p>Избери или създай проект за да започнеш</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ctx-panel closed" id="ctx-panel">
+    <div class="ctx-header">
+      <span><i class="ti ti-history" aria-hidden="true" style="margin-right:5px"></i> Натрупан контекст</span>
+      <button class="ctx-close" onclick="toggleCtx()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="ctx-body" id="ctx-body">
+      <p class="ctx-empty">Все още няма запазени анализи</p>
+    </div>
+  </div>
+</div>
+
+<!-- NEW PROJECT MODAL -->
+<div class="modal-overlay hidden" id="new-project-modal">
+  <div class="modal">
+    <h3>Нов проект</h3>
+    <p>Въведи ime на клиента или проекта.</p>
+    <label>Наименование на проекта</label>
+    <input id="new-project-name" type="text" placeholder="напр. Syscom 2025" onkeydown="if(event.key==='Enter')createProject()">
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="hideModal('new-project-modal')">Откажи</button>
+      <button class="btn-confirm" onclick="createProject()">Създай</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── FIREBASE CONFIG ──────────────────────────────────────────────
+// Попълва се автоматично от setup или от ENV
+let db = null;
+
+// ── FRAMEWORK PHASES ──────────────────────────────────────────────
+const PHASES = [
+  { id:0, label:'Фаза 0', title:'ДНК на клиента', icon:'ti-dna', steps:[
+    { id:'0.1', title:'Claims vs. Tensions', desc:'Твърдения срещу напрежения', inputLabel:'Материали на клиента (въпросник, бриф, интервю):', prompt:(inp,ctx)=>`Прочети внимателно следния документ:\n\n${inp}\n\nИзвади ДВЕ КОЛОНИ:\n\nКОЛОНА 1 — „Как се виждаме ние" (Claims):\nВсяко изречение, в което компанията се хвали, твърди превъзходство или изразява самочувствие.\n\nКОЛОНА 2 — „Напрежения и противоречия" (Tensions):\nВсяко изречение с проблем, оплакване, неразбиране или ограничение.\n\nПредстави резултата като ясна таблица: Claims | Tensions\n\nСлед таблицата напиши раздел ОСНОВНИ ПРОТИВОРЕЧИЯ — 3-5 изречения.` },
+    { id:'0.2', title:'DO / DON\'T', desc:'Превод на ценности в реални действия', inputLabel:'Декларирани ценности:', prompt:(inp,ctx)=>`Ценности: ${inp}\n\nЗа всяка попълни:\nЦЕННОСТ: [Думата]\nDO: Конкретна сцена/поведение — не абстракция\nDON\'T: Конкретно нарушение — пак сцена\n\nВАЖНО: „Те държат на качеството" е ГРЕШКА. Нужно е конкретно поведение.\nПредстави като таблица: Ценност | DO | DON\'T` }
+  ]},
+  { id:1, label:'Фаза 1', title:'Project Setup', icon:'ti-clipboard-list', steps:[
+    { id:'1.1', title:'Бизнес контекст', desc:'Структурно описание', inputLabel:'Материали (сайт, бриф, въпросник):', prompt:(inp,ctx)=>`На база:\n${inp}\n\n1. С какво се занимава? (1-2 изречения, без маркетинг)\n2. Бизнес модел (B2B/B2C/B2G + как генерира приходи)\n3. Основни услуги/продукти (булети)\n4. Клиентски сегменти\n5. География\n6. 3-те най-силни страни\n7. 3-те най-очевидни слабости\n\nФормат: ясни заглавия и булети — не параграфи.` },
+    { id:'1.2', title:'Стейкхолдъри', desc:'Карта на решенията', inputLabel:'Екипът от страна на клиента:', prompt:(inp,ctx)=>`На база: ${inp}\n\nТаблица: Роля | Отговорност (Финално одобрение/Input/Информиран) | Влияние (В/С/Н) | Канал\n\n- Финален decision maker?\n- Ежедневен контакт?\n- Скрити influencers?\n- Кой одобрява какво?` },
+    { id:'1.3-1.5', title:'Tensions + Въпроси', desc:'Напрежения, позициониране, стратегически въпроси', inputLabel:'Claims vs. Tensions + материали от сайта:', prompt:(inp,ctx)=>`На база:\n${inp}\n\nА — KNOWN TENSIONS: 3-5 напрежения | Таблица: # | Напрежение | Вътрешно/Zewno | Критично/Важно/Второстепенно\n✓ „Клиентите ни смятат за прекупвач, докато ние проектираме цялата архитектура."\n\nБ — ТЕКУЩО ПОЗИЦИОНИРАНЕ: Как се самопозиционира публично? В коя категория? Разминаване?\n\nВ — 3 КЛЮЧОВИ ВЪПРОСА: Точно 3, конкретни, не „зависи". Пример: „Трябва ли физическият капацитет да е основен диференциатор или е нишов за B2G?"` }
+  ]},
+  { id:2, label:'Фаза 2', title:'Sector & Market', icon:'ti-world', steps:[
+    { id:'2.1-2.3', title:'Пазарен анализ', desc:'Тенденции, регулации, икономика', inputLabel:'Опиши индустрията и пазара:', prompt:(inp,ctx)=>`Анализирай:\n${inp}\n\nСТРУКТУРНИ ПРОМЕНИ: 2-3 тенденции глобално + локални + кои модели печелят/губят\nРЕГУЛАТОРЕН НАТИСК: Активни закони + кой е принуден да купи + кой рискува санкции\nТЕХНОЛОГИЧЕН НАТИСК: Pull (търсени) + Push (натрапени)\nИКОНОМИЧЕСКА ДИНАМИКА: Бюджети (CAPEX→OPEX?) + публично финансиране + цикъл на покупка\nSO WHAT? — За всяка сила: ВЪЗМОЖНОСТ и ЗАПЛАХА за бранда.` },
+    { id:'2.4-2.5', title:'Речник + Импликации', desc:'Термини и стратегически изводи', inputLabel:'Ключови термини в сектора:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}ИНДУСТРИАЛЕН РЕЧНИК — за всеки термин: Определение | Разлика от съседните | Как клиентът се отнася\n\nSO WHAT? — Кои 2-3 сили са най-критични? За всяка: Възможност → Заплаха → Какво трябва да е вярно` }
+  ]},
+  { id:3, label:'Фаза 3', title:'Audience', icon:'ti-users', steps:[
+    { id:'3.1-3.5', title:'Аудитория + Pain Points', desc:'Сегменти, decision makers, болки', inputLabel:'Опиши таргет аудиторията:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}На база: ${inp}\n\nСЕГМЕНТИ: Наименование | Размер | B2B/B2G/B2C | Типична компания | Защо купуват\nNEGATIVE PROFILE: Кой НЕ е подходящ — конкретни критерии | Таблица: Сегмент | Избягвай ако | Защо\nDECISION MAKERS: Decision Maker | Influencer | Gatekeeper + Какво трябва да чуе всяка роля\nНУЖДИ И БОЛКИ: Функционални нужди | Явни страхове | Скрити страхове | Тригери на доверие | Misconceptions` }
+  ]},
+  { id:4, label:'Фаза 4', title:'Competitors', icon:'ti-eye', steps:[
+    { id:'4.comp', title:'Анализ на конкурент', desc:'Попълни за всеки конкурент поотделно', inputLabel:'Съдържание от сайта на конкурента:', prompt:(inp,ctx)=>`Анализирай:\n${inp}\n\nА. CORE FACTS: Година | Екип | География | Партньорства + сертификати | Листване\n\nБ. WHAT THEY SELL (само реални услуги като булети, без маркетинг):\n[булети]\nИнтерпретация: 2-3 изречения за бизнес модела\n\nВ. TOP 10 MESSAGING:\n- Homepage Headline: [точният текст]\n- Top 10 думи от сайта\n- Основно послание (1 изречение)\n- Ключови фрази, изграждащи тона (5-7)\n\nГ. TRUST MODEL (само булети):\n- Години опит | Клиенти/проекти | Сертификати | Референции (имена) | Медии/награди\n- Trust gap: Какво ЛИПСВА?\n\nД. TONE OF VOICE:\n- Тон (3 прилагателни) | Структура (Heavy/Light) | Визуали | Какво НЕ се показва\n\nЕ. CONTRADICTIONS & GAPS:\n| Заявено твърдение | Реалност | Защо е пропуск за нас |` }
+  ]},
+  { id:5, label:'Фаза 5', title:'Synthesis', icon:'ti-vector', steps:[
+    { id:'5.1-5.4', title:'Паттерни + Бели полета + Моатове', desc:'Клишета, gaps, стратегически предимства', inputLabel:'Всички конкурентни анализи от Фаза 4:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}На база:\n${inp}\n\nКАТЕГОРИЙНИ КЛИШЕТА (без имена):\n1. Повтарящ се език (при 3+ конкуренти)\n2. Overused claims\n3. Стандартна Trust Formula\n4. Доминиращи бизнес модели\n\nБЕЛИ ПОЛЕТА:\n- Ниво 1: Какво важно никой не казва?\n- Ниво 2: Кои комбинации не съществуват?\n- Ниво 3: Кои наративи никой не е изградил?\nЗа всеки: описание + opportunity statement\n\nCLAIM vs. REALITY: Групирани противоречия + системна причина\n\nМОАТОВЕ: Какво е | Защо е трудно за копиране | Как да се комуникира\nFALSE MOATS: кои изглеждат като предимства, но не са` }
+  ]},
+  { id:6, label:'Фаза 6', title:'Strategic Directions', icon:'ti-compass', steps:[
+    { id:'6.1-6.3', title:'Positioning + Winning Formula', desc:'Карта, изместване, НЕ/А формула', inputLabel:'Синтез от Фаза 5:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}На база: ${inp}\n\nPOSITIONING MAP: 2 двойки оси — за всяка: защо е релевантна | конкуренти | незаета зона\nSTRATEGIC SHIFT:\nОТ: [Текущо / доминиращ модел]\nКЪМ: [Целево позициониране] — за всяка: защита + риск\nWINNING FORMULA:\nНЕ: [Клишето — защо е пренаселено]\nА: [Защитимата територия — защо само ние]\nПредложи 2-3 варианта.` },
+    { id:'6.4-6.6', title:'Hard No\'s + Proof + Validation', desc:'Забрани, доказателства, хипотези', inputLabel:'Избраната стратегическа посока:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}На база: ${inp}\n\nHARD NO\'S: За всяка забрана: какво | риск | пример за нарушение\n- Забранени думи/фрази | Позиционни ходове | Тонални регистри\n\nPROOF HIERARCHY:\nTier 1 (верифицируеми от трета страна) | Tier 2 (от клиента) | Tier 3 (слаби)\nProof Gaps: претенции без backing + план\n\nVALIDATION LOG: Validated | Hypothetical | Invalidated | Critical Unknowns` }
+  ]},
+  { id:7, label:'Фаза 7', title:'Brand Strategy', icon:'ti-star', steps:[
+    { id:'7.1-7.2', title:'Core Positioning + Values', desc:'Категория, statement, ценности', inputLabel:'Winning Formula + Strategic Shift от Фаза 6:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}На база: ${inp}\n\nCORE POSITIONING:\n1. Category Redefinition: В коя категория играем?\n2. The Sound of [Company] — таблица 5 теми: | Тема | Всички останали | Ние |\n3. Positioning Statement: „[Компания] е единственият [категория], който [диференциатор], така че [клиент] може да [outcome]."\n\nBRAND VALUES & DECISION TESTS (3-4):\nЗа всяка: Наименование | Конкретно определение | Decision Test\nВАЖНО: ако може да я вземе всеки конкурент — е твърде обща.` },
+    { id:'7.3-7.4', title:'ICP + CCO Messaging', desc:'Персони и Context→Capability→Outcome', inputLabel:'Audience анализ + Core Positioning:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}На база: ${inp}\n\nICP QUICK REFERENCE:\n| ICP # | Сегмент | Key Decision Maker | Lead Message | Таглайн |\n\nЗа всеки детайлно: Pain | Role | GTM | Door Opener | Conversion Driver | Closer | What NOT to say\n\nCCO MESSAGING — за всеки ICP:\nContext (реалността): [конкретна ситуация]\nCapability (какво правим): [механизъм, без buzz words]\nOutcome (резултатът): [измерим или емоционален]` },
+    { id:'7.5-7.6', title:'TOV + Decision Log', desc:'Тон на гласа и заключени решения', inputLabel:'Brand Values + Core Positioning:', prompt:(inp,ctx)=>`${ctx?`Контекст:\n${ctx}\n\n`:''}На база: ${inp}\n\nTONE OF VOICE REFERENCE:\n1. Така звучим (3-4 конкретни примерни изречения — не описание)\n2. Така НЕ звучим (3-4 анти-примера)\n3. Забранени думи: | Дума | Защо | Алтернатива |\n4. Предпочитани думи + защо работят\n5. Граматика: лице | дължина | пунктуация\n\nDECISION LOG:\n| ID | Решение | Аргументация | Статус (LOCKED/OPEN) |\nДатирай всяко.` }
+  ]}
+];
+
+// ── STATE ──────────────────────────────────────────────────────────
+let state = { phaseIdx:0, stepIdx:0, currentProjectId:null, outputs:{}, ctxOpen:false, generating:false, userName:'', unsubscribe:null };
+
+// ── SETUP ─────────────────────────────────────────────────────────
+function saveSetup(){
+  const name = document.getElementById('setup-name').value.trim();
+  const pid  = document.getElementById('setup-projectid').value.trim();
+  const key  = document.getElementById('setup-apikey').value.trim();
+  if(!name||!pid||!key){ alert('Попълни всички полета'); return; }
+  localStorage.setItem('sb_name', name);
+  localStorage.setItem('sb_fb_pid', pid);
+  localStorage.setItem('sb_fb_key', key);
+  initApp(name, pid, key);
+}
+
+function initApp(name, pid, key){
+  state.userName = name;
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('user-name-display').textContent = name;
+  document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
+
+  if(!firebase.apps.length){
+    firebase.initializeApp({ apiKey:key, projectId:pid, authDomain:`${pid}.firebaseapp.com` });
+  }
+  db = firebase.firestore();
+  loadProjects();
+}
+
+window.onload = () => {
+  const name = localStorage.getItem('sb_name');
+  const pid  = localStorage.getItem('sb_fb_pid');
+  const key  = localStorage.getItem('sb_fb_key');
+  if(name && pid && key) initApp(name, pid, key);
+};
+
+// ── PROJECTS ──────────────────────────────────────────────────────
+async function loadProjects(){
+  const snap = await db.collection('projects').orderBy('createdAt','desc').get();
+  const sel = document.getElementById('project-select');
+  sel.innerHTML = '<option value="">— Избери проект —</option>';
+  snap.forEach(doc => {
+    const opt = document.createElement('option');
+    opt.value = doc.id;
+    opt.textContent = doc.data().name;
+    sel.appendChild(opt);
+  });
+}
+
+function showNewProject(){ document.getElementById('new-project-modal').classList.remove('hidden'); setTimeout(()=>document.getElementById('new-project-name').focus(),50); }
+function hideModal(id){ document.getElementById(id).classList.add('hidden'); }
+
+async function createProject(){
+  const name = document.getElementById('new-project-name').value.trim();
+  if(!name) return;
+  const ref = await db.collection('projects').add({ name, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+  hideModal('new-project-modal');
+  document.getElementById('new-project-name').value = '';
+  await loadProjects();
+  document.getElementById('project-select').value = ref.id;
+  onProjectChange();
+}
+
+async function onProjectChange(){
+  const pid = document.getElementById('project-select').value;
+  if(!pid){ state.currentProjectId = null; state.outputs = {}; render(); return; }
+  state.currentProjectId = pid;
+  state.phaseIdx = 0;
+  state.stepIdx = 0;
+  if(state.unsubscribe) state.unsubscribe();
+  state.unsubscribe = db.collection('projects').doc(pid).collection('outputs').onSnapshot(snap => {
+    const outs = {};
+    snap.forEach(d => { outs[d.id] = d.data(); });
+    state.outputs = outs;
+    render();
+  });
+}
+
+// ── CONTEXT BUILDER ───────────────────────────────────────────────
+function buildContext(){
+  return Object.entries(state.outputs).filter(([,v])=>v&&v.text).slice(0,6).map(([k,v])=>`=== ${k} ===\n${v.text.slice(0,400)}${v.text.length>400?'...':''}`).join('\n\n');
+}
+
+// ── GENERATE ──────────────────────────────────────────────────────
+async function generate(){
+  if(!state.currentProjectId){ alert('Избери или създай проект първо.'); return; }
+  const inp = document.getElementById('main-input')?.value.trim();
+  if(!inp){ alert('Постави материали преди да генерираш.'); return; }
+  const ph = PHASES[state.phaseIdx];
+  const st = ph.steps[state.stepIdx];
+  const ctx = buildContext();
+  const prompt = st.prompt(inp, ctx);
+  state.generating = true;
+  render();
+  const outEl = document.getElementById('output-text');
+  if(outEl) outEl.textContent = 'Анализира се...';
+  try {
+    const res = await fetch('/api/generate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:2000,
+        system:'Ти си старши бранд стратег. Отговаряй структурирано на български — с ясни заглавия, таблици и булети. Бъди конкретен и директен. Избягвай абстракции.',
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text || (data.error ? `Грешка: ${data.error}` : 'Неуспешна генерация.');
+    const key = `${ph.id}_${st.id}`;
+    await db.collection('projects').doc(state.currentProjectId).collection('outputs').doc(key).set({
+      text, phase: ph.label, step: st.title, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: state.userName
+    });
+    state.generating = false;
+    render();
+  } catch(e){
+    state.generating = false;
+    const outEl2 = document.getElementById('output-text');
+    if(outEl2) outEl2.textContent = `Грешка: ${e.message}`;
+    render();
+  }
+}
+
+// ── RENDER ────────────────────────────────────────────────────────
+function render(){
+  renderSidebar();
+  renderContent();
+  renderCtx();
+}
+
+function renderSidebar(){
+  const nav = document.getElementById('phase-nav');
+  nav.innerHTML = '';
+  PHASES.forEach((ph, pi) => {
+    const allDone = ph.steps.every(s => state.outputs[`${ph.id}_${s.id}`]);
+    const active = pi === state.phaseIdx;
+    const cls = allDone?'done':active?'active':'idle';
+    const btn = document.createElement('button');
+    btn.className = 'phase-btn' + (active?' active':'');
+    btn.innerHTML = `<div class="ph-icon ${cls}"><i class="ti ${ph.icon}" aria-hidden="true"></i></div><div class="ph-label"><strong>${ph.label}: ${ph.title}</strong><small>${ph.steps.length} ${ph.steps.length===1?'стъпка':'стъпки'}${allDone?' ✓':''}</small></div>`;
+    btn.onclick = () => { state.phaseIdx = pi; state.stepIdx = 0; render(); };
+    nav.appendChild(btn);
+  });
+}
+
+function renderContent(){
+  const ph = PHASES[state.phaseIdx];
+  const st = ph.steps[state.stepIdx];
+  const key = `${ph.id}_${st.id}`;
+  const saved = state.outputs[key];
+
+  const stepBar = document.getElementById('step-bar');
+  stepBar.innerHTML = '';
+  ph.steps.forEach((s, si) => {
+    const k = `${ph.id}_${s.id}`;
+    const isDone = !!state.outputs[k];
+    const isActive = si === state.stepIdx;
+    const tab = document.createElement('button');
+    tab.className = 'step-tab' + (isActive?' active':isDone?' done':'');
+    tab.textContent = s.title;
+    tab.onclick = () => { state.stepIdx = si; render(); };
+    stepBar.appendChild(tab);
+  });
+
+  const content = document.getElementById('content');
+
+  const metaHtml = saved ? `<div class="output-meta">Последно обновено от <strong>${saved.updatedBy||'—'}</strong>${saved.updatedAt?' · '+new Date(saved.updatedAt.seconds*1000).toLocaleString('bg-BG'):''}</div>` : '';
+
+  content.innerHTML = `
+    <div class="step-header"><h2>${st.title}</h2><p>${st.desc}</p></div>
+    <div class="input-card">
+      <label>${st.inputLabel}</label>
+      <textarea id="main-input" placeholder="Постави материалите тук..."></textarea>
+      <div class="btn-row">
+        <button class="btn-generate" id="gen-btn" onclick="generate()" ${state.generating?'disabled':''}>
+          ${state.generating ? '<div class="dot-pulse"><span></span><span></span><span></span></div> Анализира...' : '<i class="ti ti-cpu" aria-hidden="true"></i> Генерирай анализ'}
+        </button>
+        <span class="status-txt">${saved?'<span class="badge-saved">✓ Запазено</span>':''}</span>
+      </div>
+    </div>
+    <div class="output-card ${saved?'':'empty'}">
+      ${saved ? `<div id="output-text" class="output-text">${saved.text}</div>${metaHtml}` : '<div class="output-placeholder"><i class="ti ti-brain" aria-hidden="true"></i><p>Постави материали и натисни „Генерирай анализ"</p></div>'}
+    </div>
+  `;
+}
+
+function renderCtx(){
+  const panel = document.getElementById('ctx-panel');
+  panel.className = 'ctx-panel' + (state.ctxOpen?'':' closed');
+  const body = document.getElementById('ctx-body');
+  const entries = Object.entries(state.outputs).filter(([,v])=>v&&v.text);
+  if(!entries.length){ body.innerHTML = '<p class="ctx-empty">Все още няма запазени анализи</p>'; return; }
+  body.innerHTML = '';
+  entries.forEach(([k,v]) => {
+    const div = document.createElement('div');
+    div.className = 'ctx-item';
+    div.innerHTML = `<div class="ctx-item-head"><span>${v.phase||k} · ${v.step||''}</span><i class="ti ti-chevron-down" aria-hidden="true"></i></div><div class="ctx-item-body">${(v.text||'').slice(0,600)}</div>`;
+    div.querySelector('.ctx-item-head').onclick = () => {
+      const b = div.querySelector('.ctx-item-body');
+      b.classList.toggle('open');
+      div.querySelector('i').className = b.classList.contains('open')?'ti ti-chevron-up':'ti ti-chevron-down';
+    };
+    body.appendChild(div);
+  });
+}
+
+function toggleCtx(){ state.ctxOpen = !state.ctxOpen; renderCtx(); }
+</script>
+</body>
+</html>
