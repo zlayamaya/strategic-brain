@@ -400,7 +400,22 @@ async function generate(){
       })
     });
     const data = await res.json();
-    const text = data.content?.[0]?.text || (data.error ? `Грешка: ${data.error}` : 'Неуспешна генерация.');
+    let text;
+    if (data.content?.[0]?.text) {
+      text = data.content[0].text;
+    } else if (data.error) {
+      const errMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
+      const errType = data.error.type || '';
+      if (errType === 'authentication_error' || errMsg.includes('api-key') || errMsg.includes('API key')) {
+        text = '❌ Грешка с API ключа.\n\nПровери в Vercel → Settings → Environment Variables дали ANTHROPIC_API_KEY е добавен правилно и дали си направил redeploy след добавянето.';
+      } else if (errType === 'billing_error' || errMsg.includes('credit') || errMsg.includes('billing')) {
+        text = '❌ Проблем с billing.\n\nОтиди на console.anthropic.com → Billing и добави кредитна карта или провери баланса.';
+      } else {
+        text = `❌ Грешка от API: ${errMsg}`;
+      }
+    } else {
+      text = '❌ Неуспешна генерация. Провери конзолата на браузъра (F12) за детайли.';
+    }
     const key = `${ph.id}_${st.id}`;
     await db.collection('projects').doc(state.currentProjectId).collection('outputs').doc(key).set({
       text, phase: ph.label, step: st.title, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: state.userName
@@ -410,7 +425,8 @@ async function generate(){
   } catch(e){
     state.generating = false;
     const outEl2 = document.getElementById('output-text');
-    if(outEl2) outEl2.textContent = `Грешка: ${e.message}`;
+    const errTxt = e instanceof Error ? e.message : JSON.stringify(e);
+    if(outEl2) outEl2.textContent = `❌ Мрежова грешка: ${errTxt}\n\nПровери дали сайтът е деплойнат правилно и дали api/generate.js файлът е в GitHub.`;
     render();
   }
 }
