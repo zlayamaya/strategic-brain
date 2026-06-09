@@ -82,6 +82,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .content { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
 .step-header h2 { font-size: 16px; font-weight: 600; }
 .step-header p { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.step-goal { font-size: 13px; color: var(--text); margin-top: 8px; line-height: 1.6; padding: 8px 12px; background: var(--primary-light); border-left: 3px solid var(--primary-mid); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .input-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
 .input-card label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 8px; }
 .input-card textarea { width: 100%; min-height: 130px; resize: vertical; border: 1px solid var(--border2); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; font-family: 'Inter', sans-serif; color: var(--text); background: var(--bg); line-height: 1.6; }
@@ -688,7 +689,11 @@ function renderContent(){
     </div>` : '';
 
   content.innerHTML = `
-    <div class="step-header"><h2>${st.title}</h2><p>${st.desc}</p></div>
+    <div class="step-header">
+      <h2>${st.title}</h2>
+      <p>${st.desc}</p>
+      ${g ? `<div class="step-goal"><strong>Цел:</strong> ${g.goal}</div>` : ''}
+    </div>
     ${guideHtml}
     <div class="input-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
