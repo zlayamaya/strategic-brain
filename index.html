@@ -560,51 +560,85 @@ function buildContext(){
   return Object.entries(state.outputs).filter(([,v])=>v&&v.text).slice(0,6).map(([k,v])=>`=== ${k} ===\n${v.text.slice(0,400)}${v.text.length>400?'...':''}`).join('\n\n');
 }
 
+// ── HELPERS ───────────────────────────────────────────────────────
+const SYSTEM_PROMPT = 'Ти си старши бранд стратег. Отговаряй структурирано на български — с ясни заглавия, таблици и булети. Бъди конкретен и директен. Избягвай абстракции.';
+const CHUNK_SIZE = 20000;
+
+async function callGemini(userPrompt, statusLabel) {
+  const outEl = document.getElementById('output-text');
+  if(outEl && statusLabel) outEl.textContent = statusLabel;
+  const res = await fetch('/api/generate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model:'claude-sonnet-4-20250514', max_tokens:2000,
+      system: SYSTEM_PROMPT,
+      messages:[{role:'user', content: userPrompt}]
+    })
+  });
+  const data = await res.json();
+  if(data.content?.[0]?.text) return { ok: true, text: data.content[0].text };
+  const errMsg = typeof data.error === 'string' ? data.error : (data.error?.message || JSON.stringify(data.error));
+  return { ok: false, errMsg };
+}
+
+function parseError(errMsg) {
+  if(errMsg.includes('API key') || errMsg.includes('API_KEY') || errMsg.includes('not valid') || errMsg.includes('invalid'))
+    return '❌ Грешен GEMINI_API_KEY.\n\nПровери в Vercel → Settings → Environment Variables.';
+  if(errMsg.includes('Rate limit') || errMsg.includes('rate') || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota'))
+    return '⏳ RATE_LIMIT';
+  return `❌ Грешка: ${errMsg}`;
+}
+
+async function compressInput(rawInp, stepContext) {
+  const chunks = [];
+  for(let i = 0; i < rawInp.length; i += CHUNK_SIZE) chunks.push(rawInp.slice(i, i + CHUNK_SIZE));
+  const summaries = [];
+  for(let i = 0; i < chunks.length; i++) {
+    const label = `📄 Четене на документа — част ${i+1} от ${chunks.length}...`;
+    const result = await callGemini(
+      `Това е част ${i+1} от ${chunks.length} на клиентски материал.\n\nИзвлечи и запази ВСИЧКИ факти, цитати, данни, напрежения, проблеми и конкретни твърдения. Не пропускай нищо важно. Контекст на анализа: ${stepContext}\n\n---\n${chunks[i]}`,
+      label
+    );
+    if(!result.ok) return { ok: false, errMsg: result.errMsg };
+    summaries.push(result.text);
+  }
+  return { ok: true, text: summaries.join('\n\n=== СЛЕДВАЩА ЧАСТ ===\n\n') };
+}
+
 // ── GENERATE ──────────────────────────────────────────────────────
 async function generate(){
   if(!state.currentProjectId){ alert('Избери или създай проект първо.'); return; }
   const rawInp = document.getElementById('main-input')?.value.trim();
   if(!rawInp){ alert('Постави материали преди да генерираш.'); return; }
-  // Ограничи входа до ~24 000 символа (~6 000 токена) за да не се изчерпва rate limit-ът
-  const MAX_CHARS = 24000;
-  const inp = rawInp.length > MAX_CHARS
-    ? rawInp.slice(0, MAX_CHARS) + '\n\n[...документът е съкратен до първите 24 000 символа за оптималност...]'
-    : rawInp;
+
   const ph = PHASES[state.phaseIdx];
   const st = ph.steps[state.stepIdx];
   const ctx = buildContext();
-  const prompt = st.prompt(inp, ctx);
+
   state.generating = true;
   render();
-  const outEl = document.getElementById('output-text');
-  if(outEl) outEl.textContent = 'Анализира се...';
-  try {
-    const res = await fetch('/api/generate', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:2000,
-        system:'Ти си старши бранд стратег. Отговаряй структурирано на български — с ясни заглавия, таблици и булети. Бъди конкретен и директен. Избягвай абстракции.',
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-    const data = await res.json();
-    let text;
-    if (data.content?.[0]?.text) {
-      text = data.content[0].text;
-    } else if (data.error) {
-      const errMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
-      if (errMsg.includes('API key') || errMsg.includes('api key') || errMsg.includes('API_KEY') || errMsg.includes('not valid') || errMsg.includes('invalid')) {
-        text = '❌ Грешен GEMINI_API_KEY.\n\nПровери в Vercel → Settings → Environment Variables дали GEMINI_API_KEY е добавен точно и дали е бил направен нов deploy след това.';
-      } else if (errMsg.includes('Rate limit') || errMsg.includes('rate') || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota')) {
-        text = '⏳ RATE_LIMIT';
-      } else {
-        text = `❌ Грешка: ${errMsg}`;
-      }
-    } else {
-      text = '❌ Неуспешна генерация. Провери конзолата (F12 → Console) за детайли.';
+
+  let inp = rawInp;
+
+  // Ако документът е голям — прочети го на части и обобщи
+  if(rawInp.length > CHUNK_SIZE) {
+    const compressed = await compressInput(rawInp, `${ph.title} — ${st.title}: ${st.desc}`);
+    if(!compressed.ok) {
+      const key = `${ph.id}_${st.id}`;
+      await db.collection('projects').doc(state.currentProjectId).collection('outputs').doc(key).set({
+        text: parseError(compressed.errMsg), phase: ph.label, step: st.title,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: state.userName
+      });
+      state.generating = false; render(); return;
     }
+    inp = compressed.text;
+  }
+
+  const prompt = st.prompt(inp, ctx);
+
+  try {
+    const result = await callGemini(prompt, '🧠 Генерира финален анализ...');
+    const text = result.ok ? result.text : parseError(result.errMsg);
     const key = `${ph.id}_${st.id}`;
     await db.collection('projects').doc(state.currentProjectId).collection('outputs').doc(key).set({
       text, phase: ph.label, step: st.title, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: state.userName
@@ -615,7 +649,7 @@ async function generate(){
     state.generating = false;
     const outEl2 = document.getElementById('output-text');
     const errTxt = e instanceof Error ? e.message : JSON.stringify(e);
-    if(outEl2) outEl2.textContent = `❌ Мрежова грешка: ${errTxt}\n\nПровери дали сайтът е деплойнат правилно и дали api/generate.js файлът е в GitHub.`;
+    if(outEl2) outEl2.textContent = `❌ Мрежова грешка: ${errTxt}`;
     render();
   }
 }
