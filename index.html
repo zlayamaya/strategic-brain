@@ -592,8 +592,10 @@ async function generate(){
       const errMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
       if (errMsg.includes('API key') || errMsg.includes('api key') || errMsg.includes('API_KEY') || errMsg.includes('not valid') || errMsg.includes('invalid')) {
         text = '❌ Грешен GEMINI_API_KEY.\n\nПровери в Vercel → Settings → Environment Variables дали GEMINI_API_KEY е добавен точно и дали е бил направен нов deploy след това.';
-      } else if (errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('billing') || errMsg.includes('limit')) {
+      } else if (errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota') || errMsg.includes('billing')) {
         text = '❌ Дневният лимит на Google Gemini е достигнат.\n\nБезплатният план позволява 1500 заявки/ден. Изчакай до утре или вземи нов ключ от aistudio.google.com.';
+      } else if (errMsg.includes('429') || errMsg.includes('RATE_LIMIT') || errMsg.includes('Too Many') || errMsg.includes('rate') || errMsg.includes('limit')) {
+        text = '⏳ Твърде много заявки наведнъж. Изчакай 30 секунди и опитай отново.';
       } else {
         text = `❌ Грешка: ${errMsg}`;
       }
