@@ -566,19 +566,35 @@ const CHUNK_SIZE = 20000;
 
 async function callGemini(userPrompt, statusLabel) {
   const outEl = document.getElementById('output-text');
-  if(outEl && statusLabel) outEl.textContent = statusLabel;
-  const res = await fetch('/api/generate', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      model:'claude-sonnet-4-20250514', max_tokens:2000,
-      system: SYSTEM_PROMPT,
-      messages:[{role:'user', content: userPrompt}]
-    })
-  });
-  const data = await res.json();
-  if(data.content?.[0]?.text) return { ok: true, text: data.content[0].text };
-  const errMsg = typeof data.error === 'string' ? data.error : (data.error?.message || JSON.stringify(data.error));
-  return { ok: false, errMsg };
+  const setStatus = (msg) => { if(outEl) outEl.textContent = msg; };
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) {
+      // Изчакай 35 секунди в браузъра с обратно броене
+      for (let s = 35; s > 0; s--) {
+        setStatus(`⏳ Rate limit — изчакване ${s}с преди следващ опит (опит ${attempt+1}/4)...`);
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+    if (statusLabel) setStatus(statusLabel);
+
+    const res = await fetch('/api/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-20250514', max_tokens:2000,
+        system: SYSTEM_PROMPT,
+        messages:[{role:'user', content: userPrompt}]
+      })
+    });
+    const data = await res.json();
+    if (data.content?.[0]?.text) return { ok: true, text: data.content[0].text };
+
+    const errMsg = typeof data.error === 'string' ? data.error : (data.error?.message || JSON.stringify(data.error));
+    const isRateLimit = res.status === 429 || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota') || errMsg.includes('rate') || errMsg.includes('Rate');
+
+    if (!isRateLimit || attempt === 3) return { ok: false, errMsg };
+    // иначе — продължи към следващия опит с изчакване
+  }
 }
 
 function parseError(errMsg) {

@@ -26,44 +26,26 @@ export default async function handler(req, res) {
     }
   };
 
-  const maxRetries = 3;
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiBody)
+      }
+    );
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    if (attempt > 0) {
-      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: { message: data.error?.message || JSON.stringify(data) } });
     }
 
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(geminiBody)
-        }
-      );
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Празен отговор.';
+    return res.json({ content: [{ type: 'text', text }] });
 
-      if (response.status === 429 && attempt < maxRetries - 1) continue;
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          return res.status(429).json({
-            error: { message: 'Rate limit — твърде много заявки. Изчакай 30 секунди и опитай отново.' }
-          });
-        }
-        const errMsg = data.error?.message || JSON.stringify(data);
-        return res.status(response.status).json({ error: { message: errMsg } });
-      }
-
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Празен отговор.';
-      return res.json({ content: [{ type: 'text', text }] });
-
-    } catch (e) {
-      if (attempt === maxRetries - 1) {
-        return res.status(500).json({ error: { message: e.message } });
-      }
-    }
+  } catch (e) {
+    return res.status(500).json({ error: { message: e.message } });
   }
 }
