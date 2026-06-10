@@ -591,7 +591,7 @@ async function callGemini(userPrompt, statusLabel) {
     const res = await fetch('/api/generate', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        model:'claude-sonnet-4-20250514', max_tokens:2000,
+        model:'claude-sonnet-4-20250514', max_tokens:4000,
         system: SYSTEM_PROMPT,
         messages:[{role:'user', content: userPrompt}]
       })
@@ -649,17 +649,11 @@ async function generate(){
 
   const showErr = (msg) => {
     state.generating = false;
-    state.lastError = msg; // само в паметта, не в Firebase
+    state.lastError = msg;
     render();
   };
 
-  // Ако документът е голям — прочети го на части и обобщи
-  if(rawInp.length > CHUNK_SIZE) {
-    const compressed = await compressInput(rawInp, `${ph.title} — ${st.title}: ${st.desc}`);
-    if(!compressed.ok) { showErr(parseError(compressed.errMsg)); return; }
-    inp = compressed.text;
-  }
-
+  // Gemini 2.0 Flash има 1M токена context — пращаме целия документ наведнъж
   const prompt = st.prompt(inp, ctx);
 
   try {
