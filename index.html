@@ -478,7 +478,7 @@ const PHASES = [
 ];
 
 // ── STATE ──────────────────────────────────────────────────────────
-let state = { phaseIdx:0, stepIdx:0, currentProjectId:null, outputs:{}, ctxOpen:false, generating:false, userName:'', unsubscribe:null };
+let state = { phaseIdx:0, stepIdx:0, currentProjectId:null, outputs:{}, ctxOpen:false, generating:false, userName:'', unsubscribe:null, lastError:null };
 
 // ── SETUP ─────────────────────────────────────────────────────────
 function saveSetup(){
@@ -549,7 +549,17 @@ async function onProjectChange(){
   if(state.unsubscribe) state.unsubscribe();
   state.unsubscribe = db.collection('projects').doc(pid).collection('outputs').onSnapshot(snap => {
     const outs = {};
-    snap.forEach(d => { outs[d.id] = d.data(); });
+    const toDelete = [];
+    snap.forEach(d => {
+      const t = d.data().text || '';
+      // Изтрий стари грешки от Firebase
+      if(t.includes('billing') || t.includes('anthropic.com') || t.includes('RATE_LIMIT') || t.includes('debug') || t === '⏳ RATE_LIMIT') {
+        toDelete.push(d.ref);
+      } else {
+        outs[d.id] = d.data();
+      }
+    });
+    toDelete.forEach(ref => ref.delete());
     state.outputs = outs;
     render();
   });
@@ -637,17 +647,16 @@ async function generate(){
 
   let inp = rawInp;
 
+  const showErr = (msg) => {
+    state.generating = false;
+    state.lastError = msg; // само в паметта, не в Firebase
+    render();
+  };
+
   // Ако документът е голям — прочети го на части и обобщи
   if(rawInp.length > CHUNK_SIZE) {
     const compressed = await compressInput(rawInp, `${ph.title} — ${st.title}: ${st.desc}`);
-    if(!compressed.ok) {
-      const key = `${ph.id}_${st.id}`;
-      await db.collection('projects').doc(state.currentProjectId).collection('outputs').doc(key).set({
-        text: parseError(compressed.errMsg), phase: ph.label, step: st.title,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: state.userName
-      });
-      state.generating = false; render(); return;
-    }
+    if(!compressed.ok) { showErr(parseError(compressed.errMsg)); return; }
     inp = compressed.text;
   }
 
@@ -655,19 +664,19 @@ async function generate(){
 
   try {
     const result = await callGemini(prompt, '🧠 Генерира финален анализ...');
-    const text = result.ok ? result.text : parseError(result.errMsg);
+    if(!result.ok) { showErr(parseError(result.errMsg)); return; }
+
+    // Записвай в Firebase САМО при успех
     const key = `${ph.id}_${st.id}`;
     await db.collection('projects').doc(state.currentProjectId).collection('outputs').doc(key).set({
-      text, phase: ph.label, step: st.title, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: state.userName
+      text: result.text, phase: ph.label, step: st.title,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: state.userName
     });
+    state.lastError = null;
     state.generating = false;
     render();
   } catch(e){
-    state.generating = false;
-    const outEl2 = document.getElementById('output-text');
-    const errTxt = e instanceof Error ? e.message : JSON.stringify(e);
-    if(outEl2) outEl2.textContent = `❌ Мрежова грешка: ${errTxt}`;
-    render();
+    showErr(`❌ Мрежова грешка: ${e.message}`);
   }
 }
 
@@ -770,12 +779,11 @@ function renderContent(){
     </div>
     <div class="output-card ${saved?'':'empty'}">
       ${(()=>{
-        const isErr = saved && (saved.text === '⏳ RATE_LIMIT' || saved.text?.includes('Rate limit') || saved.text?.includes('debug') || saved.text?.includes('RATE_LIMIT') || saved.text?.includes('billing') || saved.text?.includes('anthropic.com') || saved.text?.includes('❌'));
-        if(isErr) return `<div class="output-placeholder" id="rate-limit-box">
-          <i class="ti ti-clock-pause" style="font-size:36px;display:block;margin-bottom:10px;color:#B8860B"></i>
-          <p style="font-weight:600;color:#7A5C00;margin-bottom:6px">Gemini е претоварен в момента</p>
-          <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Безплатният план позволява 15 заявки/мин. Изчакай малко и опитай отново.</p>
-          <button class="btn-generate" onclick="clearAndRetry()" id="retry-btn"><i class="ti ti-refresh"></i> Опитай отново</button>
+        if(state.lastError) return `<div class="output-placeholder">
+          <i class="ti ti-alert-circle" style="font-size:36px;display:block;margin-bottom:10px;color:#B8860B"></i>
+          <p style="font-weight:600;color:#7A5C00;margin-bottom:6px">Грешка при генерация</p>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:14px">${state.lastError}</p>
+          <button class="btn-generate" onclick="state.lastError=null;generate()"><i class="ti ti-refresh"></i> Опитай отново</button>
         </div>`;
         if(saved) return `<div id="output-text" class="output-text">${saved.text}</div>${metaHtml}`;
         return '<div class="output-placeholder"><i class="ti ti-brain" aria-hidden="true"></i><p>Постави материали и натисни „Генерирай анализ"</p></div>';
