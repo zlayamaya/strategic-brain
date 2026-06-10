@@ -590,7 +590,11 @@ async function callGemini(userPrompt, statusLabel) {
 }
 
 function parseError(errMsg) {
-  return `DEBUG: ${errMsg}`;
+  if(errMsg.includes('API key') || errMsg.includes('API_KEY') || errMsg.includes('not valid') || errMsg.includes('invalid'))
+    return '❌ Грешен GEMINI_API_KEY — провери в Vercel → Settings → Environment Variables.';
+  if(errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota') || errMsg.includes('429') || errMsg.includes('Rate') || errMsg.includes('rate'))
+    return '⏳ Gemini е претоварен — изчакай 30 секунди и натисни "Опитай отново".';
+  return `❌ Грешка: ${errMsg}`;
 }
 
 async function compressInput(rawInp, stepContext) {
