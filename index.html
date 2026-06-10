@@ -754,7 +754,7 @@ function renderContent(){
     </div>
     <div class="output-card ${saved?'':'empty'}">
       ${(()=>{
-        const isErr = saved && (saved.text === '⏳ RATE_LIMIT' || saved.text?.includes('Rate limit') || saved.text?.includes('debug') || saved.text?.includes('RATE_LIMIT'));
+        const isErr = saved && (saved.text === '⏳ RATE_LIMIT' || saved.text?.includes('Rate limit') || saved.text?.includes('debug') || saved.text?.includes('RATE_LIMIT') || saved.text?.includes('billing') || saved.text?.includes('anthropic.com') || saved.text?.includes('❌'));
         if(isErr) return `<div class="output-placeholder" id="rate-limit-box">
           <i class="ti ti-clock-pause" style="font-size:36px;display:block;margin-bottom:10px;color:#B8860B"></i>
           <p style="font-weight:600;color:#7A5C00;margin-bottom:6px">Gemini е претоварен в момента</p>
