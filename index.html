@@ -130,6 +130,12 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .ctx-item-body { padding: 8px 10px; font-size: 11.5px; color: var(--muted); max-height: 120px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; display: none; }
 .ctx-item-body.open { display: block; }
 .ctx-empty { text-align: center; padding: 30px 10px; font-size: 12px; color: var(--muted); }
+.ctx-section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 8px 4px 4px; display: flex; align-items: center; gap: 5px; }
+.ctx-section-label i { font-size: 13px; }
+.ctx-sot-label { color: var(--primary); }
+.ctx-item-sot { border-color: var(--primary-mid); }
+.ctx-item-sot .ctx-item-head { background: var(--primary-light); }
+.ctx-item-sot .ctx-item-head span { color: var(--primary); font-weight: 500; }
 
 /* ── MODALS ── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
@@ -567,7 +573,26 @@ async function onProjectChange(){
 
 // ── CONTEXT BUILDER ───────────────────────────────────────────────
 function buildContext(){
-  return Object.entries(state.outputs).filter(([,v])=>v&&v.text).slice(0,6).map(([k,v])=>`=== ${k} ===\n${v.text.slice(0,400)}${v.text.length>400?'...':''}`).join('\n\n');
+  // Phase 0 and 1 = Source of Truth — included in full, never truncated
+  const foundationKeys = new Set();
+  PHASES.slice(0, 2).forEach(ph => ph.steps.forEach(st => foundationKeys.add(`${ph.id}_${st.id}`)));
+
+  const foundationParts = [];
+  foundationKeys.forEach(k => {
+    const v = state.outputs[k];
+    if(v && v.text) foundationParts.push(`=== SOURCE OF TRUTH: ${v.phase||k} · ${v.step||''} ===\n${v.text}`);
+  });
+
+  // Remaining phases — recent outputs, truncated for space
+  const recentParts = Object.entries(state.outputs)
+    .filter(([k,v]) => v && v.text && !foundationKeys.has(k))
+    .slice(-4)
+    .map(([k,v]) => `=== ${v.phase||k} · ${v.step||''} ===\n${v.text.slice(0,500)}${v.text.length>500?'...':''}`);
+
+  const parts = [];
+  if(foundationParts.length) parts.push(`## ВЕРИФИЦИРАНИ ФАКТИ ЗА КЛИЕНТА (Source of Truth — Фаза 0 и 1)\n${foundationParts.join('\n\n')}`);
+  if(recentParts.length) parts.push(`## ПРЕДИШЕН АНАЛИЗ\n${recentParts.join('\n\n')}`);
+  return parts.join('\n\n');
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────
@@ -774,18 +799,42 @@ function renderCtx(){
   const body = document.getElementById('ctx-body');
   const entries = Object.entries(state.outputs).filter(([,v])=>v&&v.text);
   if(!entries.length){ body.innerHTML = '<p class="ctx-empty">Все още няма запазени анализи</p>'; return; }
+
+  const foundationKeys = new Set();
+  PHASES.slice(0, 2).forEach(ph => ph.steps.forEach(st => foundationKeys.add(`${ph.id}_${st.id}`)));
+
+  const foundation = entries.filter(([k]) => foundationKeys.has(k));
+  const rest = entries.filter(([k]) => !foundationKeys.has(k));
+
   body.innerHTML = '';
-  entries.forEach(([k,v]) => {
-    const div = document.createElement('div');
-    div.className = 'ctx-item';
-    div.innerHTML = `<div class="ctx-item-head"><span>${v.phase||k} · ${v.step||''}</span><i class="ti ti-chevron-down" aria-hidden="true"></i></div><div class="ctx-item-body">${(v.text||'').slice(0,600)}</div>`;
-    div.querySelector('.ctx-item-head').onclick = () => {
-      const b = div.querySelector('.ctx-item-body');
-      b.classList.toggle('open');
-      div.querySelector('i').className = b.classList.contains('open')?'ti ti-chevron-up':'ti ti-chevron-down';
-    };
-    body.appendChild(div);
-  });
+
+  if(foundation.length){
+    const hdr = document.createElement('div');
+    hdr.className = 'ctx-section-label ctx-sot-label';
+    hdr.innerHTML = '<i class="ti ti-shield-check"></i> Source of Truth';
+    body.appendChild(hdr);
+    foundation.forEach(([k,v]) => body.appendChild(makeCtxItem(k, v, true)));
+  }
+
+  if(rest.length){
+    const hdr = document.createElement('div');
+    hdr.className = 'ctx-section-label';
+    hdr.innerHTML = '<i class="ti ti-history"></i> Предишен анализ';
+    body.appendChild(hdr);
+    rest.forEach(([k,v]) => body.appendChild(makeCtxItem(k, v, false)));
+  }
+}
+
+function makeCtxItem(k, v, isSot){
+  const div = document.createElement('div');
+  div.className = 'ctx-item' + (isSot ? ' ctx-item-sot' : '');
+  div.innerHTML = `<div class="ctx-item-head"><span>${v.phase||k} · ${v.step||''}</span><i class="ti ti-chevron-down" aria-hidden="true"></i></div><div class="ctx-item-body">${(v.text||'').slice(0,600)}</div>`;
+  div.querySelector('.ctx-item-head').onclick = () => {
+    const b = div.querySelector('.ctx-item-body');
+    b.classList.toggle('open');
+    div.querySelector('i').className = b.classList.contains('open')?'ti ti-chevron-up':'ti ti-chevron-down';
+  };
+  return div;
 }
 
 function toggleCtx(){ state.ctxOpen = !state.ctxOpen; renderCtx(); }
